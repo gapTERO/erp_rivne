@@ -32,6 +32,96 @@ def make_badge(status):
     return w
 
 
+class QuickAddCustomerDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Додати клієнта")
+        self.setFixedWidth(350)
+        self.new_id = None
+        self.setStyleSheet(MAIN_STYLE + f"QDialog {{ background:{WHITE}; }}")
+        
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+        self.txt_name = QLineEdit()
+        self.txt_phone = QLineEdit()
+        form.addRow("Назва *:", self.txt_name)
+        form.addRow("Телефон:", self.txt_phone)
+        layout.addLayout(form)
+        
+        btn_save = QPushButton("Додати")
+        btn_save.setFixedHeight(36)
+        btn_save.setStyleSheet(f"""
+            QPushButton {{background:{ACCENT};color:white;border:none;
+            border-radius:6px;font-size:13px;font-weight:500;padding:0 14px;}}
+            QPushButton:hover{{background:{ACCENT_HOVER};}}""")
+        btn_save.clicked.connect(self._save)
+        layout.addWidget(btn_save)
+
+    def _save(self):
+        name = self.txt_name.text().strip()
+        if not name: 
+            QMessageBox.warning(self, "Увага", "Введіть назву клієнта")
+            return
+        if DB_AVAILABLE:
+            try:
+                with db_cursor() as cur:
+                    cur.execute("INSERT INTO customers (name, phone) VALUES (%s, %s) RETURNING id", 
+                                (name, self.txt_phone.text().strip()))
+                    self.new_id = cur.fetchone()["id"]
+                self.accept()
+            except Exception as e:
+                QMessageBox.critical(self, "Помилка", str(e))
+        else:
+            QMessageBox.information(self, "Демо-режим", "База даних не підключена.")
+            self.accept()
+
+
+class QuickAddProductDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Додати продукт")
+        self.setFixedWidth(350)
+        self.new_id = None
+        self.setStyleSheet(MAIN_STYLE + f"QDialog {{ background:{WHITE}; }}")
+        
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+        self.txt_name = QLineEdit()
+        self.spin_price = QDoubleSpinBox()
+        self.spin_price.setRange(0, 999999)
+        self.spin_price.setValue(15.0)
+        form.addRow("Назва *:", self.txt_name)
+        form.addRow("Ціна за кг:", self.spin_price)
+        layout.addLayout(form)
+        
+        btn_save = QPushButton("Додати")
+        btn_save.setFixedHeight(36)
+        btn_save.setStyleSheet(f"""
+            QPushButton {{background:{ACCENT};color:white;border:none;
+            border-radius:6px;font-size:13px;font-weight:500;padding:0 14px;}}
+            QPushButton:hover{{background:{ACCENT_HOVER};}}""")
+        btn_save.clicked.connect(self._save)
+        layout.addWidget(btn_save)
+
+    def _save(self):
+        name = self.txt_name.text().strip()
+        if not name: 
+            QMessageBox.warning(self, "Увага", "Введіть назву продукту")
+            return
+        if DB_AVAILABLE:
+            try:
+                with db_cursor() as cur:
+                    cur.execute("INSERT INTO products (name, price_per_kg) VALUES (%s, %s) RETURNING id", 
+                                (name, self.spin_price.value()))
+                    self.new_id = cur.fetchone()["id"]
+                self.accept()
+            except Exception as e:
+                QMessageBox.critical(self, "Помилка", str(e))
+        else:
+            QMessageBox.information(self, "Демо-режим", "База даних не підключена.")
+            self.accept()
+
+
 class OrderDialog(QDialog):
     def __init__(self, parent=None, order_id=None):
         super().__init__(parent)
@@ -63,14 +153,28 @@ class OrderDialog(QDialog):
         form.setSpacing(10)
         form.setLabelAlignment(Qt.AlignRight)
 
+        # ── Клієнт з кнопкою "+" ──
+        cust_layout = QHBoxLayout()
         self.cmb_customer = QComboBox()
         self._load_customers()
-        form.addRow("Клієнт *:", self.cmb_customer)
+        btn_add_cust = QPushButton("+")
+        btn_add_cust.setFixedSize(30, 30)
+        btn_add_cust.clicked.connect(self._quick_add_customer)
+        cust_layout.addWidget(self.cmb_customer)
+        cust_layout.addWidget(btn_add_cust)
+        form.addRow("Клієнт *:", cust_layout)
 
+        # ── Продукт з кнопкою "+" ──
+        prod_layout = QHBoxLayout()
         self.cmb_product = QComboBox()
         self._load_products()
         self.cmb_product.currentIndexChanged.connect(self._recalc)
-        form.addRow("Продукт *:", self.cmb_product)
+        btn_add_prod = QPushButton("+")
+        btn_add_prod.setFixedSize(30, 30)
+        btn_add_prod.clicked.connect(self._quick_add_product)
+        prod_layout.addWidget(self.cmb_product)
+        prod_layout.addWidget(btn_add_prod)
+        form.addRow("Продукт *:", prod_layout)
 
         self.spin_qty = QDoubleSpinBox()
         self.spin_qty.setRange(1, 999999)
@@ -125,6 +229,28 @@ class OrderDialog(QDialog):
         root.addLayout(btn_row)
 
         self._recalc()
+
+    def _quick_add_customer(self):
+        dlg = QuickAddCustomerDialog(self)
+        if dlg.exec_() == QDialog.Accepted:
+            self.cmb_customer.clear()
+            self._load_customers()
+            if dlg.new_id:
+                for i in range(self.cmb_customer.count()):
+                    if self.cmb_customer.itemData(i) == dlg.new_id:
+                        self.cmb_customer.setCurrentIndex(i)
+                        break
+
+    def _quick_add_product(self):
+        dlg = QuickAddProductDialog(self)
+        if dlg.exec_() == QDialog.Accepted:
+            self.cmb_product.clear()
+            self._load_products()
+            if dlg.new_id:
+                for i in range(self.cmb_product.count()):
+                    if self.cmb_product.itemData(i) == dlg.new_id:
+                        self.cmb_product.setCurrentIndex(i)
+                        break
 
     def _load_customers(self):
         if DB_AVAILABLE:
@@ -301,7 +427,6 @@ class OrdersTab(QWidget):
             "№","Дата","Клієнт","Продукт",
             "Кількість (кг)","Сума (грн)","Статус","Відповідальний"
         ])
-        # Callback при кліку на заголовок — тільки пересортовуємо дані
         self.table.set_sort_callback(self._on_sort)
 
         hh = self.table.horizontalHeader()
@@ -338,10 +463,7 @@ class OrdersTab(QWidget):
         b.clicked.connect(slot)
         return b
 
-    # ── Сортування через callback ─────────────
     def _on_sort(self, col: int, asc: bool):
-        """Викликається з SortableTable при кліку на заголовок."""
-        # Ключ сортування
         col_keys = {0:"order_number",1:"date",2:"customer",3:"product",
                     4:"quantity_kg",5:"total_price",6:"status",7:"responsible"}
         key_name = col_keys.get(col)
@@ -358,7 +480,6 @@ class OrdersTab(QWidget):
         self.sorted_data = sorted(self.sorted_data, key=sort_key, reverse=not asc)
         self._fill_table(self.sorted_data)
 
-    # ── Дані ─────────────────────────────────
     def refresh(self):
         self.all_data = []
         if DB_AVAILABLE:
@@ -412,10 +533,7 @@ class OrdersTab(QWidget):
         self._fill_table(self.sorted_data)
 
     def _fill_table(self, data):
-        """Заповнює таблицю БЕЗ очищення через setRowCount(0)."""
-        # Встановлюємо потрібну кількість рядків
         self.table.setRowCount(len(data))
-
         for r, row in enumerate(data):
             num_item = QTableWidgetItem(str(row["order_number"]))
             num_item.setData(Qt.UserRole, row.get("id"))
@@ -433,7 +551,6 @@ class OrdersTab(QWidget):
 
         self.lbl_count.setText(f"Показано: {len(data)} замовлень")
 
-    # ── Вибір рядка ──────────────────────────
     def _selected(self):
         row = self.table.currentRow()
         if row < 0 or row >= self.table.rowCount():
@@ -443,7 +560,6 @@ class OrdersTab(QWidget):
             return None, None
         return row, item.data(Qt.UserRole)
 
-    # ── Дії ──────────────────────────────────
     def _new_order(self):
         if OrderDialog(self).exec_() == QDialog.Accepted:
             self.refresh()
